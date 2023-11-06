@@ -1,0 +1,9 @@
+requests
+aiohttp
+openpyxl
+bs4
+lxml
+selenium
+webdriver-manager
+python-rucaptcha
+pytz
