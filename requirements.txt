@@ -5,5 +5,9 @@ bs4
 lxml
 selenium
 webdriver-manager
-python-rucaptcha
 pytz
+PyVirtualDisplay
+python-dotenv
+django
+google-api-python-client
+oauth2client

@@ -2,8 +2,6 @@ import os
 import traceback
 import pickle
 import time
-from bs4 import BeautifulSoup
-import lxml
 from selenium import webdriver 
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -12,13 +10,14 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.keys import Keys 
 import json
-import requests
 from utils.events import split_next_date, get_current_state
 from datetime import datetime
 import pytz
+from pyvirtualdisplay import Display
+
 class MySelenium:
 
-    def __init__(self, headless=True, is_save_auth=False):
+    def __init__(self, cases=[], is_auth=False, is_save_auth=False, is_full=True, logs=True):
             
         service = Service(executable_path=ChromeDriverManager().install())
 
@@ -26,7 +25,6 @@ class MySelenium:
         self.options = Options()
         self.options.add_argument("user-agent=Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:84.0) Gecko/20100101 Firefox/84.0")      
         self.options.add_argument("--disable-blink-features=AutomationControlled")
-        self.options.add_argument("--start-maximized")
         self.options.add_argument('--no-sandbox')
         self.options.add_argument('--disable-gpu')  
         self.options.add_argument("--disable-extensions")
@@ -34,16 +32,14 @@ class MySelenium:
         self.options.add_argument('--ignore-certificate-errors')
         self.options.add_argument('--disable-dev-shm-usage')
 
-
-        # обновление авторизации только в браузере!
-        if headless and not is_save_auth:
-            self.options.add_argument('--headless')
-
-
-
-        self.driver = webdriver.Chrome(service=service, options=self.options)
-        
-        self.cookies_path = os.path.join(os.getcwd(), "data", "cookies.pickle")
+        self.driver         = webdriver.Chrome(service=service, options=self.options)
+        self.cookies_path   = os.path.join(os.getcwd(), "data", "cookies.pickle")
+        self.results        = []
+        self.is_full        = is_full
+        self.cases          = cases
+        self.is_auth        = is_auth
+        self.is_save_auth   = is_save_auth
+        self.logs           = logs
 
         if is_save_auth:
             self.update_auth()
@@ -107,7 +103,8 @@ class MySelenium:
 
         self.driver.refresh()
         time.sleep(5)
-        print("[LOG]: успешно загрузил куки")
+        if self.logs:       
+            print("[LOG]: успешно загрузил куки")
 
     def update_auth(self):
         
@@ -126,7 +123,8 @@ class MySelenium:
             self.quit() 
             
     def quit(self):
-        print("[LOG]: Заканчиваю")
+        if self.logs:
+            print("[LOG]: Заканчиваю")
         self.driver.close() # закрывает страницу
         self.driver.quit() # закрывает браузер
 
@@ -165,95 +163,150 @@ class MySelenium:
                 general_next_date = nd
                 break
         return general_next_date
+    
+
     def get_pages(self):
+
+        """
+        just get pages
+        """
         try:
+
+            self.driver.implicitly_wait(10)
             pages =self.driver.find_element(By.XPATH, '//*[@id="chrono_list_content"]/div[2]/div[2]/ul')
             pages = [int(i.text) for i in pages.find_elements(By.TAG_NAME, "li") if i.text.isdigit()]
         except Exception:
             pages = [1]
         return pages
     
+
+    def pars_current_page(self, case, p):
+
+        """
+        parsing current page with case data
+        """
+
+        if self.logs:
+            print(f"[LOG]: Ищу инфо для дела {case} (Страница {p})")
+        if p >1:
+            self.driver.implicitly_wait(10)
+            field = self.driver.find_element(By.XPATH, '//*[@id="chrono_list_content"]/div[2]/div[2]/div[1]/div/input')
+            field.click()
+            field.clear()
+            field.send_keys(p)
+            field.send_keys(Keys.ENTER)
+            time.sleep(5)
+            self.html.send_keys(Keys.UP)
+
+        self.driver.implicitly_wait(15)
+        main_field=self.driver.find_element(By.CLASS_NAME, "b-chrono-items-container")
+        # ищем все документы из карточки дела
+        docs =main_field.find_elements(By.CLASS_NAME, "b-chrono-item")
+
+        for doc in docs:
+            # получаем необработанный результат с данными
+            pure_res = self.pars_doc(doc)
+            self.info.append(pure_res)
+            # выделяем текущую стадию и следующую дату
+            if pure_res["cur_state"]:
+                self.states.append(pure_res["cur_state"]) 
+            if pure_res["next_date"]:
+                self.ndates.append(pure_res["next_date"])
+            
+
+    def pars_current_case(self, case):
+        """
+        parsing whole info about case
+        """
+
+        if self.logs:
+            print(f"[LOG]: Ищу инфо для дела {case}")
+
+        uri = f"https://kad.arbitr.ru/Card?number={case}"
+        self.driver.get(uri)
+        time.sleep(5)
+        self.driver.execute_script("document.getElementsByClassName('form-one-widget__root')[0].style.display = 'none';")
+        self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        self.driver.implicitly_wait(10)
+        # блок со всеми инстанциями
+        instances_block = self.driver.find_element(By.ID, "chrono_list_content")
+        # первая инстанция идёт последней
+        first_floor = instances_block.find_elements(By.CLASS_NAME, "b-chrono-item-header")[-1].find_element(By.CLASS_NAME, "container")
+        
+        # последний див - кнопка
+        first_floor.find_element(By.CLASS_NAME, "b-collapse").click()
+        self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        # получаем страницы
+        
+        # перезаписываем каждый раз для дела
+        self.info = []
+        self.ndates = []
+        self.states = []
+        self.html = self.driver.find_element(By.TAG_NAME, 'html')
+        self.html.send_keys(Keys.END)
+        pages = self.get_pages()
+
+        for page in pages:
+            try:
+                self.pars_current_page(case, page)
+            except Exception:
+                print(f"[ERROR]: \n\n{traceback.format_exc()}")
+
+        
+        # от новых к старым: первая стадия - текущая
+        current_state = self.states[0]
+
+        # следующая дата для дела
+        general_next_date =self.get_general_next_date(self.ndates) 
+        result = {
+            "next_date": datetime.strftime(general_next_date, "%d.%m.%Y") if general_next_date else "",
+            "current_state": current_state, 
+            "uri":uri
+        }
+
+        # если нужна инфа обо всех доках
+        if self.is_full:
+            result['info'] = self.info
+        self.results.append(result)
+
+    
     def search(self):
         try:
-        
-            # self.update_cookies()
-            # self.set_cookies()
-            results=[]
-            for case in ["А73-19161/2020", "А55-5885/2023", "А75-19194/2020"]:
-                
-                uri = f"https://kad.arbitr.ru/Card?number={case}"
-                self.driver.get(uri)
-                time.sleep(5)
 
-                self.driver.execute_script("document.getElementsByClassName('form-one-widget__root')[0].style.display = 'none';")
-                # self.driver.execute_script("document.getElementsByClassName('gr-content')[0].style.display = 'none';")
-        
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                
-                # блок со всеми инстанциями
-                instances_block = self.driver.find_element(By.ID, "chrono_list_content")
-                # первая инстанция идёт последней
-                first_floor = instances_block.find_elements(By.CLASS_NAME, "b-chrono-item-header")[-1].find_element(By.CLASS_NAME, "container")
-                
-                # последний див - кнопка
-                first_floor.find_element(By.CLASS_NAME, "b-collapse").click()
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(5)
-                # получаем страницы
-                
-                info = []
-                ndates = []
-                states = []
+            # авторизация
+            if self.is_auth:
+                self.update_cookies()
+                self.set_cookies()
 
-                html = self.driver.find_element(By.TAG_NAME, 'html')
-                html.send_keys(Keys.END)
-                pages = self.get_pages()
-                for p in pages:
-                    if p >1:
-                        field = self.driver.find_element(By.XPATH, '//*[@id="chrono_list_content"]/div[2]/div[2]/div[1]/div/input')
-                        field.click()
-                        time.sleep(2)
-                        field.clear()
-                        field.send_keys(p)
-                        field.send_keys(Keys.ENTER)
-                        html.send_keys(Keys.UP)
-
-                        time.sleep(2)
-
-                    #chrono_ed_content > div > ul
-                    main_field=self.driver.find_element(By.CLASS_NAME, "b-chrono-items-container")
-                   
-                    # ищем все документы из карточки дела
-                    docs =main_field.find_elements(By.CLASS_NAME, "b-chrono-item")
-
-                    for doc in docs:
-                        # получаем необработанный результат с данными
-                        pure_res = self.pars_doc(doc)
-                        info.append(pure_res)
-                        # выделяем текущую стадию и следующую дату
-                        if pure_res["cur_state"]:
-                            states.append(pure_res["cur_state"]) # добавляем стадию
-                        if pure_res["next_date"]:
-                            ndates.append(pure_res["next_date"])
-                   
-
-                # от новых к старым: первая стадия - текущая
-                current_state = states[0]
-                general_next_date =self.get_general_next_date(ndates) 
-                result = {
-                    "info": info,
-                    "next_date": datetime.strftime(general_next_date, "%d.%m.%Y") if general_next_date else "",
-                    "current_state": current_state
-                }
-                results.append(result)
-                time.sleep(5)
-                    
-
+            for case in self.cases:
+                try:
+                    self.pars_current_case(case)
+                except Exception:
+                    print(f"[ERROR]: \n\n{traceback.format_exc()}")
+               
         except Exception:
             print(f"[ERROR]: \n\n{traceback.format_exc()}")
         finally:
             self.quit() 
 
-ms = MySelenium(headless=False, is_save_auth=False)
+def runner(headless, is_save_auth, **kwargs):
+    if headless and not is_save_auth:
+        try:
+            display = Display(visible=0, size=(800, 600))
+            display.start()
+            ms = MySelenium(is_save_auth=is_save_auth, **kwargs)
+            ms.search()
+        finally:
+            display.stop()
 
-ms.search()
+    else:
+        ms = MySelenium(is_save_auth=is_save_auth, **kwargs)
+        ms.search()
+
+    return ms.results
+
+
+results = runner(cases=["А73-19161/2020", "А55-5885/2023", "А75-19194/2020"],  
+                 is_save_auth=False, is_full=False, headless=True)
+print(results)
+
