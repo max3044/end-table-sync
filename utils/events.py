@@ -24,13 +24,15 @@ def get_current_state(_result):
 
     result = _result.lower()
     if "Освободить гражданина от исполнения обязательств".lower() in result or "Освобождении гражданина от исполнения обязательств".lower() in result:
-        state = "<ЗАВЕРШЁН>"
+        state = "<ЗАВЕРШЕНО>"
     elif "Ввести процедуру реструктуризации".lower() in result or "Введении процедуру реструктуризации".lower() in result:
         state = "<РЕСТРУКТУРИЗАЦИЯ>"
     elif "Ввести процедуру реализации".lower() in result or "Введении процедуры реализации".lower() in result:
         state = "<РЕАЛИЗАЦИЯ>"
     elif "Назначить судебное заседание по рассмотрению обоснованности".lower() in result or "Назначении судебного заседания по рассмотрению обоснованности".lower() in result: 
         state = "<ДОКУМЕНТЫ ОТПРАВЛЕНЫ>"
+    elif "Прекратить производство".lower() in result or "Прекращении производства".lower() in result: 
+        state = "<ПРОИЗВОДСТВО ПРЕКРАЩЕНО>"
     else: 
         state = ""
     return state

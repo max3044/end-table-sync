@@ -17,7 +17,7 @@ from pyvirtualdisplay import Display
 
 class MySelenium:
 
-    def __init__(self, cases=[], is_auth=False, is_save_auth=False, is_full=True, logs=True):
+    def __init__(self, cases=[], is_auth=False, is_save_auth=False, is_full=False, logs=True):
             
         service = Service(executable_path=ChromeDriverManager().install())
 
@@ -120,6 +120,7 @@ class MySelenium:
         except Exception:
             print(f"[ERROR]: \n\n{traceback.format_exc()}")
         finally:
+    
             self.quit() 
             
     def quit(self):
@@ -289,7 +290,7 @@ class MySelenium:
         finally:
             self.quit() 
 
-def runner(headless, is_save_auth, **kwargs):
+def runner(headless, is_save_auth=False, **kwargs):
     if headless and not is_save_auth:
         try:
             display = Display(visible=0, size=(800, 600))
@@ -306,7 +307,7 @@ def runner(headless, is_save_auth, **kwargs):
     return ms.results
 
 
-results = runner(cases=["А73-19161/2020", "А55-5885/2023", "А75-19194/2020"],  
-                 is_save_auth=False, is_full=False, headless=True)
-print(results)
+# results = runner(cases=["А55-2413/2023"], is_auth=True,
+#                  is_save_auth=False, is_full=False, headless=True)
+# print(results)
 
